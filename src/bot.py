@@ -1,5 +1,5 @@
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from telegram import Update, ParseMode, BotCommandScope, BotCommandScopeAllChatAdministrators
+from telegram import Update, ParseMode
 import schedule
 import time
 from datetime import datetime
@@ -28,66 +28,28 @@ class ReportBot:
             ('start', 'Show bot information and help menu'),
             ('report', 'Submit your daily report'),
             ('status', 'Check who has reported today'),
+            ('help', 'Show help information'),
         ]
         
-        # Add admin commands
         if ADMIN_IDS:
-            admin_commands = [
+            commands.extend([
                 ('trigger', 'Manually trigger reminder'),
                 ('settime', 'Set daily reminder time (HH:MM)'),
-            ]
-            # Set admin commands visible only to admins
-            self.updater.bot.set_my_commands(
-                admin_commands, 
-                scope=BotCommandScopeAllChatAdministrators()
-            )
+            ])
         
-        # Set regular commands visible to all users
-        self.updater.bot.set_my_commands(commands)
+        try:
+            self.updater.bot.set_my_commands(commands)
+        except Exception as e:
+            logger.error(f"Failed to set commands: {str(e)}")
 
     def setup_handlers(self):
-        # Add new handlers for menu commands
         self.dp.add_handler(CommandHandler("start", self.start_command))
-        
-        # Keep existing handlers
+        self.dp.add_handler(CommandHandler("help", self.help_command))
         self.dp.add_handler(MessageHandler(Filters.status_update.new_chat_members, self.handle_new_chat_members))
         self.dp.add_handler(CommandHandler("report", self.handle_report))
         self.dp.add_handler(CommandHandler("status", self.check_status))
         self.dp.add_handler(CommandHandler("trigger", self.manual_trigger, filters=Filters.user(user_id=ADMIN_IDS)))
         self.dp.add_handler(CommandHandler("settime", self.set_reminder_time, filters=Filters.user(user_id=ADMIN_IDS)))
-
-    def handle_new_chat_members(self, update: Update, context: CallbackContext):
-        new_members = update.message.new_chat_members
-        for member in new_members:
-            if member.id == context.bot.id:
-                chat_id = update.message.chat_id
-                group_name = update.message.chat.title
-                logger.info(f"Bot added to group: {group_name} (ID: {chat_id})")
-                
-                self.db.add_group(chat_id, group_name, TIMEZONE)
-                
-                welcome_msg = "👋 Xin chào! Bot đã sẵn sàng gửi nhắc nhở report daily."
-                context.bot.send_message(chat_id=chat_id, text=welcome_msg)
-
-    def send_reminder(self, context: CallbackContext):
-        groups = self.db.get_all_groups()
-        current_time = datetime.now(pytz.timezone(TIMEZONE))
-        is_weekend = current_time.weekday() >= 5
-
-        if is_weekend:
-            message = "🌅 Cuối tuần vui vẻ! Các em yêu ơi report daily nhé ❤️"
-        else:
-            message = "☀️ Các em yêu ơi report daily nhé"
-
-        for chat_id in groups:
-            try:
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Failed to send reminder to group {chat_id}: {str(e)}")
 
     def start_command(self, update: Update, context: CallbackContext):
         """Handle /start command"""
@@ -106,8 +68,52 @@ class ReportBot:
             parse_mode=ParseMode.MARKDOWN
         )
 
+    def help_command(self, update: Update, context: CallbackContext):
+        """Handle /help command"""
+        help_message = (
+            "*📚 Daily Report Bot Help*\n\n"
+            "*Basic Commands:*\n"
+            "• /report <your_report> - Submit your daily report\n"
+            "  Example: `/report Working on feature X`\n\n"
+            "• /status - See who has reported today\n\n"
+            "*How to use:*\n"
+            "1. Wait for the daily reminder or use commands anytime\n"
+            "2. Submit your report using the /report command\n"
+            "3. Check submission status with /status\n\n"
+            "*Report Format:*\n"
+            "Simply type what you worked on after the /report command\n\n"
+            "*Reminder Schedule:*\n"
+            "• Weekdays: Regular daily report reminder\n"
+            "• Weekends: Special weekend reminder\n"
+        )
+
+        if update.effective_user.id in ADMIN_IDS:
+            help_message += (
+                "\n*Admin Commands:*\n"
+                "• /trigger - Manually send reminder\n"
+                "• /settime <HH:MM> - Change reminder time\n"
+                "  Example: `/settime 09:30`"
+            )
+
+        update.message.reply_text(
+            help_message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    def handle_new_chat_members(self, update: Update, context: CallbackContext):
+        new_members = update.message.new_chat_members
+        for member in new_members:
+            if member.id == context.bot.id:
+                chat_id = update.message.chat_id
+                group_name = update.message.chat.title
+                logger.info(f"Bot added to group: {group_name} (ID: {chat_id})")
+                
+                self.db.add_group(chat_id, group_name, TIMEZONE)
+                
+                welcome_msg = "👋 Xin chào! Bot đã sẵn sàng gửi nhắc nhở report daily."
+                context.bot.send_message(chat_id=chat_id, text=welcome_msg)
+
     def handle_report(self, update: Update, context: CallbackContext):
-        """Handle /report command"""
         user = update.message.from_user
         chat_id = update.message.chat_id
         report_content = ' '.join(context.args)
@@ -144,14 +150,17 @@ class ReportBot:
         
         reported_users = self.db.get_reported_users(chat_id, current_date)
         
-        message = "📊 Today's Report Status:\n\n"
-        message += "Reported:\n" + "\n".join([f"✅ @{user}" for user in reported_users])
+        message = "📊 *Today's Report Status:*\n\n"
+        if reported_users:
+            message += "*Reported:*\n" + "\n".join([f"✅ @{user}" for user in reported_users])
+        else:
+            message += "No reports submitted yet today."
         
-        update.message.reply_text(message)
+        update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
 
     def manual_trigger(self, update: Update, context: CallbackContext):
         self.send_reminder(context)
-        update.message.reply_text("Manual reminder sent!")
+        update.message.reply_text("✅ Manual reminder sent!")
 
     def set_reminder_time(self, update: Update, context: CallbackContext):
         if not context.args or len(context.args) != 1:
@@ -163,9 +172,29 @@ class ReportBot:
             datetime.strptime(time_str, '%H:%M')
             schedule.clear()
             schedule.every().day.at(time_str).do(self.send_reminder, context)
-            update.message.reply_text(f"Reminder time set to {time_str}")
+            update.message.reply_text(f"⏰ Reminder time set to {time_str}")
         except ValueError:
-            update.message.reply_text("Invalid time format. Please use HH:MM")
+            update.message.reply_text("❌ Invalid time format. Please use HH:MM")
+
+    def send_reminder(self, context: CallbackContext):
+        groups = self.db.get_all_groups()
+        current_time = datetime.now(pytz.timezone(TIMEZONE))
+        is_weekend = current_time.weekday() >= 5
+
+        if is_weekend:
+            message = "🌅 Cuối tuần vui vẻ! Các em yêu ơi report daily nhé ❤️"
+        else:
+            message = "☀️ Các em yêu ơi report daily nhé"
+
+        for chat_id in groups:
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Failed to send reminder to group {chat_id}: {str(e)}")
 
     def run(self):
         schedule.every().day.at(DEFAULT_REMINDER_TIME).do(self.send_reminder, self.updater)
