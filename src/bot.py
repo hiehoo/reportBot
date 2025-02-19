@@ -121,6 +121,7 @@ class ReportBot:
     def handle_report(self, update: Update, context: CallbackContext):
         user = update.message.from_user
         chat_id = update.message.chat_id
+        message_id = update.message.message_id
         report_content = ' '.join(context.args)
         
         if not report_content:
@@ -137,7 +138,7 @@ class ReportBot:
             )
             return
 
-        if self.db.add_report(user.id, user.username, report_content, chat_id, TIMEZONE):
+        if self.db.add_report(user.id, user.username, report_content, chat_id, message_id, TIMEZONE):
             update.message.reply_text(
                 "✅ *Report submitted successfully!*\n"
                 "Use /status to see all submissions.",
@@ -158,14 +159,16 @@ class ReportBot:
         message = "📊 *Today's Report Status:*\n\n"
         if reported_users:
             message += "*Reported:*\n"
-            for username, report in reported_users:
-                message += f"✅ @{username} \\- `{report}`\n"
+            for username, chat_id, message_id in reported_users:
+                message_link = f"t.me/c/{str(chat_id)[4:]}/{message_id}"
+                message += f"✅ @{username} \\- [Link]({message_link})\n"
         else:
             message += "No reports submitted yet today\\."
         
         update.message.reply_text(
             message, 
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=ParseMode.MARKDOWN_V2,
+            disable_web_page_preview=True
         )
 
     def manual_trigger(self, update: Update, context: CallbackContext):

@@ -37,7 +37,8 @@ class Database:
                 report_content TEXT,
                 submitted_at TIMESTAMP,
                 chat_id INTEGER,
-                topic_id INTEGER DEFAULT 0
+                topic_id INTEGER DEFAULT 0,
+                message_id INTEGER
             );
         ''')
         self.conn.commit()
@@ -53,14 +54,14 @@ class Database:
             logger.error(f"Error adding group: {str(e)}")
             self.conn.rollback()
 
-    def add_report(self, user_id, username, report_content, chat_id, timezone='Asia/Bangkok'):
+    def add_report(self, user_id, username, report_content, chat_id, message_id, timezone='Asia/Bangkok'):
         try:
             tz = pytz.timezone(timezone)
             current_date = datetime.now(tz).date()
             self.cursor.execute('''
-                INSERT INTO reports (user_id, username, report_date, report_content, submitted_at, chat_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, username, current_date, report_content, datetime.now(tz), chat_id))
+                INSERT INTO reports (user_id, username, report_date, report_content, submitted_at, chat_id, message_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, username, current_date, report_content, datetime.now(tz), chat_id, message_id))
             self.conn.commit()
             return True
         except Exception as e:
@@ -89,9 +90,9 @@ class Database:
             return []
 
     def get_reported_users_with_reports(self, chat_id, date):
-        """Get list of users who reported today with their report content"""
+        """Get list of users who reported today with their report content and message IDs"""
         query = """
-            SELECT username, report_content 
+            SELECT username, chat_id, message_id 
             FROM reports 
             WHERE chat_id = ? 
             AND DATE(submitted_at) = DATE(?)
