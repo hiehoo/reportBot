@@ -163,8 +163,6 @@ class ReportBot:
         else:
             message += "No reports submitted yet today\\."
         
-        message += "\n\n_made by @Robin with ❤️_"
-        
         update.message.reply_text(
             message, 
             parse_mode=ParseMode.MARKDOWN_V2
