@@ -6,7 +6,7 @@ from datetime import datetime
 import pytz
 import logging
 from database import Database
-from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE, DEFAULT_REMINDER_TIME
+from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE, DEFAULT_REMINDER_TIME, DEFAULT_TOPIC_ID
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -35,6 +35,7 @@ class ReportBot:
             commands.extend([
                 ('trigger', 'Manually trigger reminder'),
                 ('settime', 'Set daily reminder time (HH:MM)'),
+                ('settopic', 'Set topic for reminders'),
             ])
         
         try:
@@ -50,6 +51,7 @@ class ReportBot:
         self.dp.add_handler(CommandHandler("status", self.check_status))
         self.dp.add_handler(CommandHandler("trigger", self.manual_trigger, filters=Filters.user(user_id=ADMIN_IDS)))
         self.dp.add_handler(CommandHandler("settime", self.set_reminder_time, filters=Filters.user(user_id=ADMIN_IDS)))
+        self.dp.add_handler(CommandHandler("settopic", self.set_topic, filters=Filters.user(user_id=ADMIN_IDS)))
 
     def start_command(self, update: Update, context: CallbackContext):
         """Handle /start command"""
@@ -106,12 +108,17 @@ class ReportBot:
             if member.id == context.bot.id:
                 chat_id = update.message.chat_id
                 group_name = update.message.chat.title
-                logger.info(f"Bot added to group: {group_name} (ID: {chat_id})")
+                topic_id = update.message.message_thread_id or DEFAULT_TOPIC_ID
                 
-                self.db.add_group(chat_id, group_name, TIMEZONE)
+                logger.info(f"Bot added to group: {group_name} (ID: {chat_id}, Topic: {topic_id})")
+                self.db.add_group(chat_id, group_name, topic_id, TIMEZONE)
                 
                 welcome_msg = "👋 Xin chào! Bot đã sẵn sàng gửi nhắc nhở report daily."
-                context.bot.send_message(chat_id=chat_id, text=welcome_msg)
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    message_thread_id=topic_id if topic_id != 0 else None,
+                    text=welcome_msg
+                )
 
     def handle_report(self, update: Update, context: CallbackContext):
         user = update.message.from_user
@@ -176,6 +183,31 @@ class ReportBot:
         except ValueError:
             update.message.reply_text("❌ Invalid time format. Please use HH:MM")
 
+    def set_topic(self, update: Update, context: CallbackContext):
+        """Handle /settopic command"""
+        if not context.args or len(context.args) != 1:
+            update.message.reply_text(
+                "Please provide the topic ID.\n"
+                "Example: `/settopic 123`\n"
+                "Use 0 for main group chat.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        try:
+            topic_id = int(context.args[0])
+            chat_id = update.message.chat_id
+            
+            # Update the group's topic ID in the database
+            self.db.add_group(chat_id, update.message.chat.title, topic_id)
+            
+            update.message.reply_text(
+                f"✅ Reminder topic has been set to: {topic_id if topic_id != 0 else 'main chat'}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except ValueError:
+            update.message.reply_text("❌ Invalid topic ID. Please provide a number.")
+
     def send_reminder(self, context: CallbackContext):
         groups = self.db.get_all_groups()
         current_time = datetime.now(pytz.timezone(TIMEZONE))
@@ -186,15 +218,19 @@ class ReportBot:
         else:
             message = "☀️ Các em yêu ơi report daily nhé"
 
-        for chat_id in groups:
+        for group in groups:
+            chat_id = group[0]
+            topic_id = group[2] if len(group) > 2 else DEFAULT_TOPIC_ID
+            
             try:
                 context.bot.send_message(
                     chat_id=chat_id,
+                    message_thread_id=topic_id if topic_id != 0 else None,
                     text=message,
                     parse_mode=ParseMode.HTML
                 )
             except Exception as e:
-                logger.error(f"Failed to send reminder to group {chat_id}: {str(e)}")
+                logger.error(f"Failed to send reminder to group {chat_id} topic {topic_id}: {str(e)}")
 
     def run(self):
         schedule.every().day.at(DEFAULT_REMINDER_TIME).do(self.send_reminder, self.updater)

@@ -26,6 +26,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS groups (
                 chat_id INTEGER PRIMARY KEY,
                 group_name TEXT,
+                topic_id INTEGER DEFAULT 0,
                 added_at TIMESTAMP
             );
 
@@ -35,17 +36,18 @@ class Database:
                 report_date DATE,
                 report_content TEXT,
                 submitted_at TIMESTAMP,
-                chat_id INTEGER
+                chat_id INTEGER,
+                topic_id INTEGER DEFAULT 0
             );
         ''')
         self.conn.commit()
 
-    def add_group(self, chat_id, group_name, timezone='Asia/Bangkok'):
+    def add_group(self, chat_id, group_name, topic_id=0, timezone='Asia/Bangkok'):
         try:
             self.cursor.execute('''
-                INSERT OR REPLACE INTO groups (chat_id, group_name, added_at)
-                VALUES (?, ?, ?)
-            ''', (chat_id, group_name, datetime.now(pytz.timezone(timezone))))
+                INSERT OR REPLACE INTO groups (chat_id, group_name, topic_id, added_at)
+                VALUES (?, ?, ?, ?)
+            ''', (chat_id, group_name, topic_id, datetime.now(pytz.timezone(timezone))))
             self.conn.commit()
         except Exception as e:
             logger.error(f"Error adding group: {str(e)}")
