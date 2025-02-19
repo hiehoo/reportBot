@@ -45,7 +45,6 @@ class ReportBot:
 
     def setup_handlers(self):
         self.dp.add_handler(CommandHandler("start", self.start_command))
-        self.dp.add_handler(CommandHandler("help", self.help_command))
         self.dp.add_handler(MessageHandler(Filters.status_update.new_chat_members, self.handle_new_chat_members))
         self.dp.add_handler(CommandHandler("report", self.handle_report))
         self.dp.add_handler(CommandHandler("status", self.check_status))
@@ -61,7 +60,6 @@ class ReportBot:
             "*Available Commands:*\n"
             "📝 /report - Submit your daily report\n"
             "📊 /status - Check who has reported today\n"
-            "❓ /help - Show detailed help information\n\n"
             "Daily reminders will be sent at 10:00 AM (GMT+7).\n"
             "Don't forget to submit your reports! 😊"
         )
@@ -155,15 +153,22 @@ class ReportBot:
         chat_id = update.message.chat_id
         current_date = datetime.now(pytz.timezone(TIMEZONE)).date()
         
-        reported_users = self.db.get_reported_users(chat_id, current_date)
+        reported_users = self.db.get_reported_users_with_reports(chat_id, current_date)
         
         message = "📊 *Today's Report Status:*\n\n"
         if reported_users:
-            message += "*Reported:*\n" + "\n".join([f"✅ @{user}" for user in reported_users])
+            message += "*Reported:*\n"
+            for username, report in reported_users:
+                message += f"✅ @{username} \\- `{report}`\n"
         else:
-            message += "No reports submitted yet today."
+            message += "No reports submitted yet today\\."
         
-        update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+        message += "\n\n_made by @Robin with ❤️_"
+        
+        update.message.reply_text(
+            message, 
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
 
     def manual_trigger(self, update: Update, context: CallbackContext):
         self.send_reminder(context)

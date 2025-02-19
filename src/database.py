@@ -86,4 +86,15 @@ class Database:
             return [row[0] for row in self.cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error getting groups: {str(e)}")
-            return [] 
+            return []
+
+    def get_reported_users_with_reports(self, chat_id, date):
+        """Get list of users who reported today with their report content"""
+        query = """
+            SELECT username, report_content 
+            FROM reports 
+            WHERE chat_id = ? 
+            AND DATE(submitted_at) = DATE(?)
+        """
+        self.cursor.execute(query, (chat_id, date))
+        return self.cursor.fetchall() 
