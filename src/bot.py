@@ -21,6 +21,7 @@ class ReportBot:
         self.db = Database()
         self.setup_handlers()
         self.setup_commands()
+        self.setup_scheduler()
 
     def setup_commands(self):
         """Set up bot commands that appear in the menu"""
@@ -235,13 +236,65 @@ class ReportBot:
                     text=message,
                     parse_mode=ParseMode.HTML
                 )
+                logger.info(f"Sent reminder to group {chat_id}")
             except Exception as e:
-                logger.error(f"Failed to send reminder to group {chat_id} topic {topic_id}: {str(e)}")
+                logger.error(f"Failed to send reminder to group {chat_id}: {str(e)}")
+                # If the bot was removed from the group, remove it from database
+                if "bot was kicked" in str(e) or "chat not found" in str(e):
+                    self.db.remove_group(chat_id)
+                    logger.info(f"Removed group {chat_id} from database")
 
-    def run(self):
-        schedule.every().day.at(DEFAULT_REMINDER_TIME).do(self.send_reminder, self.updater)
-        self.updater.start_polling()
+    def setup_scheduler(self):
+        """Setup daily reminder schedule"""
+        # Schedule daily reminder
+        schedule.every().day.at(DEFAULT_REMINDER_TIME).do(
+            self.send_daily_reminder
+        )
         
+        # Start the scheduler in a separate thread
+        import threading
+        scheduler_thread = threading.Thread(target=self.run_scheduler)
+        scheduler_thread.daemon = True  # This ensures the thread will exit when the main program exits
+        scheduler_thread.start()
+
+    def run_scheduler(self):
+        """Run the scheduler in a separate thread"""
         while True:
             schedule.run_pending()
-            time.sleep(1) 
+            time.sleep(60)  # Check every minute instead of every second
+
+    def send_daily_reminder(self):
+        """Send daily reminder and check who hasn't reported"""
+        current_time = datetime.now(pytz.timezone(TIMEZONE))
+        is_weekend = current_time.weekday() >= 5
+        
+        if is_weekend:
+            reminder_msg = "🌅 Cuối tuần vui vẻ! Các em yêu ơi report daily nhé ❤️"
+        else:
+            reminder_msg = "☀️ Các em yêu ơi report daily nhé"
+
+        groups = self.db.get_all_groups()
+        for group in groups:
+            chat_id = group[0]
+            topic_id = group[2] if len(group) > 2 else DEFAULT_TOPIC_ID
+            
+            try:
+                # Send the reminder
+                self.updater.bot.send_message(
+                    chat_id=chat_id,
+                    message_thread_id=topic_id if topic_id != 0 else None,
+                    text=reminder_msg,
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Sent daily reminder to group {chat_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to send reminder to group {chat_id}: {str(e)}")
+                if "bot was kicked" in str(e) or "chat not found" in str(e):
+                    self.db.remove_group(chat_id)
+                    logger.info(f"Removed group {chat_id} from database")
+
+    def run(self):
+        """Start the bot"""
+        self.updater.start_polling()
+        self.updater.idle()  # This replaces the while True loop 

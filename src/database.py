@@ -22,6 +22,8 @@ class Database:
             raise
 
     def setup_tables(self):
+        """Setup database tables with backward compatibility"""
+        # First create tables if they don't exist
         self.cursor.executescript('''
             CREATE TABLE IF NOT EXISTS groups (
                 chat_id INTEGER PRIMARY KEY,
@@ -37,11 +39,23 @@ class Database:
                 report_content TEXT,
                 submitted_at TIMESTAMP,
                 chat_id INTEGER,
-                topic_id INTEGER DEFAULT 0,
-                message_id INTEGER
+                topic_id INTEGER DEFAULT 0
             );
         ''')
-        self.conn.commit()
+        
+        # Check if message_id column exists in reports table
+        cursor = self.conn.execute('PRAGMA table_info(reports)')
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        # Add message_id column if it doesn't exist
+        if 'message_id' not in columns:
+            try:
+                self.cursor.execute('ALTER TABLE reports ADD COLUMN message_id INTEGER')
+                self.conn.commit()
+                logger.info("Added message_id column to reports table")
+            except Exception as e:
+                logger.error(f"Error adding message_id column: {str(e)}")
+                self.conn.rollback()
 
     def add_group(self, chat_id, group_name, topic_id=0, timezone='Asia/Bangkok'):
         try:
@@ -82,9 +96,13 @@ class Database:
             return []
 
     def get_all_groups(self):
+        """Get all active groups"""
         try:
-            self.cursor.execute('SELECT chat_id FROM groups')
-            return [row[0] for row in self.cursor.fetchall()]
+            self.cursor.execute('''
+                SELECT chat_id, group_name, topic_id 
+                FROM groups
+            ''')
+            return self.cursor.fetchall()
         except Exception as e:
             logger.error(f"Error getting groups: {str(e)}")
             return []
@@ -98,4 +116,15 @@ class Database:
             AND DATE(submitted_at) = DATE(?)
         """
         self.cursor.execute(query, (chat_id, date))
-        return self.cursor.fetchall() 
+        return self.cursor.fetchall()
+
+    def remove_group(self, chat_id):
+        """Remove a group from the database"""
+        try:
+            self.cursor.execute('DELETE FROM groups WHERE chat_id = ?', (chat_id,))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error removing group: {str(e)}")
+            self.conn.rollback()
+            return False 
