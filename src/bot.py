@@ -152,23 +152,28 @@ class ReportBot:
             )
 
     def check_status(self, update: Update, context: CallbackContext):
+        """Handle /status command"""
+        # Check if message exists
+        if not update.message:
+            return
+            
         chat_id = update.message.chat_id
         current_date = datetime.now(pytz.timezone(TIMEZONE)).date()
         
         reported_users = self.db.get_reported_users_with_reports(chat_id, current_date)
         
-        message = "📊 *Today's Report Status:*\n\n"
+        message = "📊 Today's Report Status:\n\n"
         if reported_users:
-            message += "*Reported:*\n"
+            message += "Reported:\n"
             for username, chat_id, message_id in reported_users:
                 message_link = f"t.me/c/{str(chat_id)[4:]}/{message_id}"
-                message += f"✅ @{username} \\- [Link]({message_link})\n"
+                message += f"✅ @{username} - <a href='{message_link}'>Link</a>\n"
         else:
-            message += "No reports submitted yet today\\."
+            message += "No reports submitted yet today."
         
         update.message.reply_text(
-            message, 
-            parse_mode=ParseMode.MARKDOWN_V2,
+            message,
+            parse_mode=ParseMode.HTML,
             disable_web_page_preview=True
         )
 
@@ -296,5 +301,26 @@ class ReportBot:
 
     def run(self):
         """Start the bot"""
-        self.updater.start_polling()
-        self.updater.idle()  # This replaces the while True loop 
+        try:
+            # Add error handler
+            self.dp.add_error_handler(self.error_handler)
+            
+            # Start the bot
+            self.updater.start_polling(
+                drop_pending_updates=True  # Ignore pending updates
+            )
+            self.updater.idle()
+        except Exception as e:
+            logger.error(f"Error in bot run: {str(e)}")
+            raise
+
+    def error_handler(self, update: Update, context: CallbackContext):
+        """Handle errors"""
+        logger.error(f"Update {update} caused error {context.error}")
+        
+        # Send message to user if possible
+        if update and update.message:
+            update.message.reply_text(
+                "Sorry, an error occurred. Please try again later.",
+                parse_mode=ParseMode.HTML
+            ) 
